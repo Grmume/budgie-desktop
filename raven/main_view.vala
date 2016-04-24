@@ -87,8 +87,8 @@ public class MainView : Gtk.Box
 
         brightness = new BrightnessWidget();
 
-        /* Check if a compatible backlight controller is available */
-        if(brightness.has_controller())
+        /* Check if the dbus interface was found */
+        if(brightness.ScreenInterfaceFound)
         {
             brightness.margin_top = 6;
             box.pack_start(brightness, false, false, 0);
@@ -116,7 +116,7 @@ public class MainView : Gtk.Box
             Raven.get_instance().ReadNotifications();
         }
         else if(main_stack.get_visible_child_name() == "applets") {
-            if(brightness.has_controller()) {
+            if(brightness.ScreenInterfaceFound) {
                 brightness.update_scale();
             }
         }
@@ -127,7 +127,7 @@ public class MainView : Gtk.Box
     {
         main_stack.set_visible_child_name("applets");
         
-        if(brightness.has_controller()) {
+        if(brightness.ScreenInterfaceFound) {
             brightness.update_scale();
         }
     }

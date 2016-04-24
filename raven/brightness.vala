@@ -9,10 +9,17 @@
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  */
+[DBus (name = "org.gnome.SettingsDaemon.Power.Screen")]
+interface Screen : GLib.Object {
+    public abstract int StepDown() throws IOError;
+    public abstract int StepUp() throws IOError;
+    public abstract int Brightness { owned get; owned set;}
+}
 
 public class BrightnessWidget : Gtk.Box
 {
-    private const string backlight_path = "/sys/class/backlight";
+    private Screen? screen = null;
+    public bool ScreenInterfaceFound { get { return screen != null; } }
     private Gtk.Scale? scale = null;
     private ulong scale_id = 0;
     private string backlight_controller;
@@ -29,7 +36,7 @@ public class BrightnessWidget : Gtk.Box
 
         scale = new Gtk.Scale.with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 10);
         scale.set_draw_value(false);
-        scale_id = scale.value_changed.connect(on_bightness_scale_change);
+        scale_id = scale.value_changed.connect(on_brightness_scale_change);
 
         header = new Budgie.HeaderWidget("", "display-brightness-symbolic", false, scale);
         pack_start(header, false, false);
@@ -39,14 +46,19 @@ public class BrightnessWidget : Gtk.Box
         /* Default value for max brightness in case there's no max_brightness file present */
          max_brightness = 976; 
 
-        /* Try to find a controller */
-        get_controller();      
+        try
+        {
+            screen = GLib.Bus.get_proxy_sync (BusType.SESSION, "org.gnome.SettingsDaemon.Power", "/org/gnome/SettingsDaemon/Power");
+
+        } catch (IOError e) {
+            stderr.printf ("%s\n", e.message);
+        }     
     }
 
     /**
      * New brightness from our scale
      */
-    private void on_bightness_scale_change()
+    private void on_brightness_scale_change()
     {
         write_brightness((int)scale.get_value());
     }
@@ -57,88 +69,14 @@ public class BrightnessWidget : Gtk.Box
         scale.set_value(brightness);        
     }
 
-    public bool has_controller()
-    {
-        return backlight_controller != "";
-    }
-
-    public bool get_controller()
-    {
-        bool controller_found = false;
-        var directory = File.new_for_path (backlight_path);
-        var enumerator = directory.enumerate_children("standard::*",FileQueryInfoFlags.NONE);
-        FileInfo info;
-        while((info = enumerator.next_file()) != null)
-        {
-            stdout.printf("File: "+info.get_name()+" Filetype:"+info.get_file_type().to_string());
-            if(info.get_file_type() == FileType.DIRECTORY)
-            {
-
-                /* Controller found, check if it contains a brightness file */
-                var bright_file = File.new_for_path(backlight_path+"/"+info.get_name()+"/brightness");
-                if(bright_file.query_exists())
-                {
-                    
-                    backlight_controller = backlight_path+"/"+info.get_name();
-                    controller_found = true;
-
-                    /* Check permissions, read and write brightness */
-                    var brightness = read_brightness();
-                    try
-                    {
-                        write_brightness(brightness);
-                    }
-                    catch(IOError e)
-                    {
-                        /* No permissions */
-                        backlight_controller = "";
-                        controller_found = false;
-                    }
-
-                    if(controller_found) break;
-                }
-            }        
-        }
-
-        if(controller_found)
-        {
-            SignalHandler.block(scale, scale_id);
-
-            scale.set_value(read_brightness()); 
-
-            /* Try to get the maximum brightness */
-            var max_bright_file = File.new_for_path(backlight_controller+"/max_brightness");
-            if(max_bright_file.query_exists())
-            {
-                /* read the value */
-                var dis = new DataInputStream(max_bright_file.read());
-                var line = dis.read_line(null);
-                max_brightness = int.parse(line);
-
-                /* Each scroll increments by 5% */
-                var step_size = max_brightness / 20;
-                /* Set minimal brightness to first step */
-                scale.set_range(step_size, max_brightness);
-                scale.set_increments(step_size, step_size);
-            }
-            
-            SignalHandler.unblock(scale, scale_id);
-        }
-
-        return controller_found;
-    }
-
     /**
      * Read the brightness value
      */
     private int read_brightness()
     {
-        if(backlight_controller != "")
+        if(screen != null)
         {
-            var file = File.new_for_path(backlight_controller+"/brightness");
-            var dis = new DataInputStream(file.read());
-            var line = dis.read_line(null);
-            return(int.parse(line));
+            return screen.Brightness;
         }
 
         return 0;
@@ -149,12 +87,10 @@ public class BrightnessWidget : Gtk.Box
      */
     private void write_brightness(int brightness) throws IOError
     {
-        if(backlight_controller != "")
+        if(screen != null)
         {
 
-            var file = File.new_for_path(backlight_controller+"/brightness");
-            var dis = new DataOutputStream(file.append_to(0));
-            dis.put_string(brightness.to_string());
+            screen.Brightness = brightness;
         }
     }
 
